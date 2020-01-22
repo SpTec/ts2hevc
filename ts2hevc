@@ -1,0 +1,262 @@
+#!/bin/bash
+# Version 0.9 18/01/20 
+
+# adding color, just use echo -e
+Black='\033[0;30m'
+Red='\033[0;31m'
+Green='\033[0;32m'
+BrownOrange='\033[0;33m'
+Blue='\033[0;34m'
+Purple='\033[0;35m'
+Cyan='\033[0;36m'
+LightGray='\033[0;37m'
+DarkGray='\033[1;30m'
+LightRed='\033[1;31m'
+LightGreen='\033[1;32m'
+Yellow='\033[1;33m'
+LightBlue='\033[1;34m'
+LightPurple='\033[1;35m'
+LightCyan='\033[1;36m'
+Neg='\033[00m'
+
+warn() {
+    clear
+    ffmpeg -version
+    echo
+    echo -e ${Cyan}$PWD${Neg}${BrownOrange}" is the current directory, ts2hevc needs to be"
+    echo -e "executed in the same directory as the input file/s. If OK just press [Enter]"
+    echo -e "or [Enter] then q to cd to the correct directory\n"${Neg}
+    read -p "[Enter] to continue"
+}
+
+filenames(){
+    ls *.ts *.mp4 *.mkv *.avi > files.log 2> /dev/null
+    
+    # declaring array list and index iterator
+    declare -a files=()
+    i=0
+
+    # reading file in row mode, insert each line into array
+    while IFS= read -r line; do
+        files[i]=$line
+        let "i++"
+        # reading from file path
+    done < "files.log"
+
+    echo
+    echo -e "Videos in current directory"
+    for line in "${files[@]}"
+      do
+        echo -e ${Blue}"$line"${Neg}
+      done
+
+    echo  
+    echo -e ${BrownOrange}"Script defaults to 1st file in the above list. Enter to accept or backspace to change\n"${Neg} 
+      
+    read -ep "Input Filename: <Enter> to accept, or backspace to change: " -i "${files[0]}" INPUTF
+    echo -e Input Filename: ${Cyan}"${INPUTF} \n"${Neg}
+        
+    if [ ${INPUTF[0]: -3} == ".ts" ]; then
+        read -ep "Output Filename: <Enter> to accept, or backspace to change (no .ext needed): " -i "${INPUTF:0:-3}" OUTPUTF
+    else
+        read -ep "Output Filename: <Enter> to accept, or backspace to change (no .ext needed): " -i "${INPUTF:0:-4}" OUTPUTF
+    fi
+
+    echo -e Output Filename: ${Cyan}"${OUTPUTF}.mp4 \n"${Neg}
+
+}
+
+change_audio(){
+    # This will show all streams within the .ts file
+
+    ffmpeg -hide_banner -i "${INPUTF}" 2> "${INPUTF}.log"
+
+    # grep the stream ref id from the generated logfile so that can be entered
+
+    grep --color "Stream #0:." "${INPUTF}.log"
+    echo
+    echo -e ${Blue}"Choose stream index from the output above, I do this because ffmpeg will default"
+    echo -e "to the first audio track and that is normally NAR (format: 0:1, 0:2, 0:3, 0:4 etc)\n"${Neg}
+
+    read -p "Enter audio stream index: " AUDIO
+    while true; do
+        echo -e "You entered" ${Blue}"${AUDIO}"${Neg}; read -p "Is this correct? (y/n) " yn 
+        case $yn in
+            [Yy]* ) break; ;;
+            [Nn]* ) echo; read -p "Enter audio stream index: " AUDIO; ;;
+        esac
+    done 
+    
+    ffmpeg -hide_banner -i "${INPUTF}" -fflags +genpts -map 0:0 -map ${AUDIO} -c copy "${OUTPUTF}-1.ts"
+
+}
+
+timestamp(){    
+    # Choose the start & end timestamp
+    
+    echo
+    echo -e ${BrownOrange}"I am encoding recordings from TV, so I want to cut the garbage at the start and end. \n"
+    echo -e "To do this play" ${Neg}${Cyan}"${OUTPUTF}-1.ts"" / ""${OUTPUTF}.ts"${Neg}${BrownOrange} "to find the start and end points you require.\n"${Neg}
+
+    
+    
+    while true; do
+        read -p "Enter start time (format: hhmmss): " ST; START="${ST:0:2}:${ST:2:2}:${ST:4:2}"
+        read -p "Enter end time (format: hhmmss): " EN; END="${EN:0:2}:${EN:2:2}:${EN:4:2}"
+        echo -e "Start is" ${BrownOrange}"${START}"${Neg} "End is" ${BrownOrange}"${END}"${Neg}; read -p "Is this correct? (y/n) " yn
+        case $yn in
+            [Yy]* ) break; ;;
+            [Nn]* ) echo; ;;
+        esac
+    done
+    echo
+    echo -e ${BrownOrange}"This is the final encoding and will take a while depending on cpu and input type.\n"${Neg}
+    read -p "[Enter] when you are ready! "
+    
+}
+
+confirm(){
+    while true; do
+        read -p "Are you sure? (y/n) " yn
+        case $yn in
+            [Yy]* ) rm -f *.log "${INPUTF}" "${OUTPUTF}-1.ts" "${OUTPUTF}.ts"; break ;;
+            [Nn]* ) break ;;
+        esac
+    done
+
+}
+
+fullhd(){
+	ffmpeg -hide_banner -i "${OUTPUTF}-1.ts" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
+
+}
+
+upscale720(){
+	ffmpeg -hide_banner -i "${OUTPUTF}-1.ts" -c:v libx265 -preset ultrafast -s 1280x720 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
+}
+
+# upscale to 720 no audio changes
+upscale720noaud(){
+	ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -s 1280x720 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
+}
+
+x264_x265(){
+        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -s 1920x1080 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-1.mp4"
+
+}
+
+no_up_x264_x265(){
+        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-1.mp4"
+
+}
+
+message(){
+	echo
+    echo -e ${Green}"Encoding finished successfully, play" ${Blue}"${OUTPUTF}.mp4"${Neg}${Green} "to check encode is good.\n"${Neg}
+}
+
+help() {
+
+less << _EOF_
+ ts2hevc -- A simple wrapper for ffmpeg with various ffmpeg profiles
+ 
+ Background -- 
+
+ I had lots of movies in .ts format recorded from a dvr and the disk was
+ getting pretty full so I thought I would encode them to hevc for size and
+ quality, as they were tv recordings with several audio and subtitle tracks
+ and also garbage at the start and end it was quite time consuming to edit
+ the audio to the 1 track I wanted and to cut the start and end points.
+
+ So this was born still very much a work in progress but works well for
+ my needs currently
+
+ Of course you need ffmpeg installed and to be compiled to use x265, more info
+ https://trac.ffmpeg.org/wiki/Encode/H.265
+
+ The program will check the ffmpeg version and display this if  --enable-libx265
+ is shown in the configuration you are probably good to go
+
+ Usage --
+
+ Copy ts2hevc to a directory in your PATH either /usr/local/bin if you want all
+ users to be able to use it or ~/.local/bin/ if just for you. Or you can just copy it
+ to the directory where the files are and run it with ./ts2hevc <Enter>
+
+ Navigate to the directory where the files are to be encoded and type 'ts2hevc'
+ and <Enter> 
+ ts2hevc will check the PWD and will show you and give the option to change it, if
+ it is wrong.
+ 
+ Output files will be saved to the same directory
+
+ Options are pretty self explanatory I think and you will be guided through all of them
+
+ Press h from the main menu to see this help again
+
+ One ffmpeg issue I have found is if your terminal window is not wide enough when encoding
+ the output continually scrolls after every frame, to stop this make your terminal window
+ wider then it will just update the same line.
+        
+ Disclaimer:
+ 
+ THIS SOFTWARE IS PROVIDED “AS IS” AND ANY EXPRESS OR IMPLIED
+ WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ EVENT SHALL I BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+ BY USING THIS PROGRAM YOU ARE AGREEING TO THIS DISCLAIMER
+
+ IF YOU DON'T AGREE PRESS Q TWICE TO LEAVE THE PROGRAM AND THEN DELETE IT
+
+ [Press q to exit]
+
+_EOF_
+
+}
+
+menu(){
+    clear
+    while true; do
+        echo -e "========================================================"
+        echo -e ${Cyan}"                 ts2hevc Ver: 0.9"${Neg}           
+        echo -e "========================================================"
+        echo -e ${Blue}".ts Encoding Menu"${Neg}
+        echo -e ${Green}"[1] HD 1080: Filenames | Choose Audio | Timestamps | Encode"
+        echo -e "[2] SD => 720: Filenames | Choose Audio | Timestamps | 720 Encode"
+        echo -e "[3] Horror Channel: Filenames | Timestamps | 720 Encode"
+        echo -e ${Blue}"x264 Encoding Menu"${Neg}
+        echo -e ${Green}"[4] x264 => x265. Upscale to 1080"
+        echo -e "[5] x264 => x265. No Upscale"
+        echo -e "[6] Delete all input files. Use with care"
+        echo -e "[7] Clear Screen"
+        echo -e "[H]elp"
+        echo -e "[Q]uit\n"${Neg}
+        read -p "Enter Option: " choice
+        case "$choice" in
+            [1]* ) filenames; change_audio; timestamp; fullhd; message; read -p "[Enter] to continue"; echo; ;;
+            [2]* ) filenames; change_audio; timestamp; upscale720; message; read -p "[Enter] to continue"; echo; ;;
+            [3]* ) filenames; timestamp; upscale720noaud; message; read -p "[Enter] to continue"; echo; ;;
+            [4]* ) filenames; x264_x265; message; read -p "[Enter] to continue"; echo; ;;
+            [5]* ) filenames; no_up_x264_x265; message; read -p "[Enter] to continue"; echo; ;;
+            [6]* ) confirm; ;;
+            [7]* ) menu; ;;
+            [Hh]* ) help; menu; ;;
+            [Qq]* ) echo "quit by user"; exit;;
+            * ) echo "Invalid Option. Try Again!";;
+        esac
+    done
+}
+
+if [[ -e ~/.ts2hevc ]] ; then
+    menu
+else
+    help; touch ~/.ts2hevc; warn; clear; menu 
+fi
+
+# 
