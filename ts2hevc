@@ -19,6 +19,22 @@ LightPurple='\033[1;35m'
 LightCyan='\033[1;36m'
 Neg='\033[00m'
 
+trim() {
+    while true; do
+        read -p "Enter start time (format: hhmmss): " ST; START="${ST:0:2}:${ST:2:2}:${ST:4:2}"
+        read -p "Enter end time (format: hhmmss): " EN; END="${EN:0:2}:${EN:2:2}:${EN:4:2}"
+        echo -e "Start is" ${BrownOrange}"${START}"${Neg} "End is" ${BrownOrange}"${END}"${Neg}; read -p "Is this correct? (y/n) " yn
+        case $yn in
+            [Yy]* ) break; ;;
+            [Nn]* ) echo; ;;
+        esac
+    done
+
+    ffmpeg -hide_banner -i "${INPUTF}" -fflags +genpts -ss ${START} -to ${END} -c copy "${OUTPUTF}-trim.mp4"
+    echo
+    echo -e ${Green}"Trimming finished successfully, play" ${Blue}"${OUTPUTF}-trim.mp4"${Neg}${Green} "to check.\n"${Neg}
+}
+
 warn() {
     clear
     ffmpeg -version
@@ -44,7 +60,7 @@ filenames(){
     done < "files.log"
 
     echo
-    echo -e "Videos in current directory"
+    echo -e "Videos in ${PWD}"
     for line in "${files[@]}"
       do
         echo -e ${Blue}"$line"${Neg}
@@ -66,6 +82,20 @@ filenames(){
 
 }
 
+trim_names() {
+    ls *.ts *.mp4 *.mkv *.avi > files.log 2> /dev/null
+    echo
+    echo -e ${Blue}"Videos in ${PWD}"${Neg}; cat files.log
+    echo  
+    read -ep "Input Filename: " INPUTF
+    echo -e Input Filename: ${Cyan}"${INPUTF} \n"${Neg}
+        
+    read -ep "Output Filename: (no .ext needed): " -i "${INPUTF:0:-4}" OUTPUTF
+    
+    echo -e Output Filename: ${Cyan}"${OUTPUTF}-trim.mp4 \n"${Neg}
+
+}
+
 change_audio(){
     # This will show all streams within the .ts file
 
@@ -75,8 +105,8 @@ change_audio(){
 
     grep --color "Stream #0:." "${INPUTF}.log"
     echo
-    echo -e ${Blue}"Choose stream index from the output above, I do this because ffmpeg will default"
-    echo -e "to the first audio track and that is normally NAR (format: 0:1, 0:2, 0:3, 0:4 etc)\n"${Neg}
+    echo -e ${Blue}"Choose stream index from the output above, because ffmpeg will default to the"
+    echo -e "first audio track and you may not want that (format: 0:1, 0:2, 0:3, 0:4 etc)\n"${Neg}
 
     read -p "Enter audio stream index: " AUDIO
     while true; do
@@ -87,7 +117,7 @@ change_audio(){
         esac
     done 
     
-    ffmpeg -hide_banner -i "${INPUTF}" -fflags +genpts -map 0:0 -map ${AUDIO} -c copy "${OUTPUTF}-1.ts"
+    ffmpeg -hide_banner -i "${INPUTF}" -fflags +genpts -map 0:0 -map ${AUDIO} -c copy "${OUTPUTF}-tmp.ts"
 
 }
 
@@ -96,7 +126,7 @@ timestamp(){
     
     echo
     echo -e ${BrownOrange}"I am encoding recordings from TV, so I want to cut the garbage at the start and end. \n"
-    echo -e "To do this play" ${Neg}${Cyan}"${OUTPUTF}-1.ts"" / ""${OUTPUTF}.ts"${Neg}${BrownOrange} "to find the start and end points you require.\n"${Neg}
+    echo -e "To do this play" ${Neg}${Cyan}"${OUTPUTF}-tmp.ts"" / ""${OUTPUTF}.ts"${Neg}${BrownOrange} "to find the start and end points you require.\n"${Neg}
 
     
     
@@ -119,7 +149,7 @@ confirm(){
     while true; do
         read -p "Are you sure? (y/n) " yn
         case $yn in
-            [Yy]* ) rm -f *.log "${INPUTF}" "${OUTPUTF}-1.ts" "${OUTPUTF}.ts"; break ;;
+            [Yy]* ) rm -f *.log "${INPUTF}" "${OUTPUTF}-tmp.ts" "${OUTPUTF}.ts"; break ;;
             [Nn]* ) break ;;
         esac
     done
@@ -127,12 +157,12 @@ confirm(){
 }
 
 fullhd(){
-	ffmpeg -hide_banner -i "${OUTPUTF}-1.ts" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
+	ffmpeg -hide_banner -i "${OUTPUTF}-tmp.ts" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
 
 }
 
 upscale720(){
-	ffmpeg -hide_banner -i "${OUTPUTF}-1.ts" -c:v libx265 -preset ultrafast -s 1280x720 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
+	ffmpeg -hide_banner -i "${OUTPUTF}-tmp.ts" -c:v libx265 -preset ultrafast -s 1280x720 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -ss ${START} -to ${END} -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}.mp4"
 }
 
 # upscale to 720 no audio changes
@@ -141,12 +171,12 @@ upscale720noaud(){
 }
 
 x264_x265(){
-        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -s 1920x1080 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-1.mp4"
+        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -s 1920x1080 -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-enc.mp4"
 
 }
 
 no_up_x264_x265(){
-        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-1.mp4"
+        ffmpeg -hide_banner -i "${INPUTF}" -c:v libx265 -preset ultrafast -x265-params crf=28:qcomp=0.8:aq-mode=1:aq_strength=1.0:qg-size=16:psy-rd=0.7:psy-rdoq=5.0:rdoq-level=1:merange=44 -c:a aac -ar 48000 -ac 2 -b:a 192k -filter:a "volume=2" "${OUTPUTF}-enc.mp4"
 
 }
 
@@ -233,19 +263,21 @@ menu(){
         echo -e ${Blue}"x264 Encoding Menu"${Neg}
         echo -e ${Green}"[4] x264 => x265. Upscale to 1080"
         echo -e "[5] x264 => x265. No Upscale"
-        echo -e "[6] Delete all input files. Use with care"
-        echo -e "[7] Clear Screen"
+        echo -e "[6] Trim mp4 Video"
+        echo -e "[7] Delete all input files. Use with care"
+        echo -e "[8] Clear Screen"
         echo -e "[H]elp"
         echo -e "[Q]uit\n"${Neg}
-        read -p "Enter Option: " choice
+        read -ep "Option: " choice
         case "$choice" in
-            [1]* ) filenames; change_audio; timestamp; fullhd; message; read -p "[Enter] to continue"; echo; ;;
-            [2]* ) filenames; change_audio; timestamp; upscale720; message; read -p "[Enter] to continue"; echo; ;;
-            [3]* ) filenames; timestamp; upscale720noaud; message; read -p "[Enter] to continue"; echo; ;;
-            [4]* ) filenames; x264_x265; message; read -p "[Enter] to continue"; echo; ;;
-            [5]* ) filenames; no_up_x264_x265; message; read -p "[Enter] to continue"; echo; ;;
-            [6]* ) confirm; ;;
-            [7]* ) menu; ;;
+            [1]* ) filenames; change_audio; timestamp; fullhd; message; read -p "[Enter] to continue"; menu; ;;
+            [2]* ) filenames; change_audio; timestamp; upscale720; message; read -p "[Enter] to continue"; menu; ;;
+            [3]* ) filenames; timestamp; upscale720noaud; message; read -p "[Enter] to continue"; menu; ;;
+            [4]* ) filenames; x264_x265; message; read -p "[Enter] to continue"; menu; ;;
+            [5]* ) filenames; no_up_x264_x265; message; read -p "[Enter] to continue"; menu; ;;
+            [6]* ) trim_names; trim; read -p "[Enter] to continue"; menu; ;;
+            [7]* ) confirm; ;;
+            [8]* ) menu; ;;
             [Hh]* ) help; menu; ;;
             [Qq]* ) echo "quit by user"; exit;;
             * ) echo "Invalid Option. Try Again!";;
@@ -258,5 +290,3 @@ if [[ -e ~/.ts2hevc ]] ; then
 else
     help; touch ~/.ts2hevc; warn; clear; menu 
 fi
-
-# 
