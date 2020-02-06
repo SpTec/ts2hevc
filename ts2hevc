@@ -136,7 +136,7 @@ confirm(){
     clear;
     echo -e ${Green}"\n[1] Delete source files & logs.\n[2] Back to Menu.\n"${Neg}
     while true; do
-        read -p "Make Choice (1 or 2) " yn
+        read -p "Make Choice: " yn
         case $yn in
             [1]* ) rm -f *.log "${INPUTF}" "${OUTPUTF}-tmp.ts" "${OUTPUTF}.ts"; break ;;
             [2]* ) break ;;
